@@ -4,7 +4,7 @@
 #include "debuglib.hpp"
 #include "line_sort.hpp"
 
-FILE * out;
+FILE * out = stdout;
 
 void print_line(const char *text, Line line) {
     fprintf(out, "%s", text + line.pos);
@@ -13,67 +13,52 @@ void print_line(const char *text, Line line) {
 bool forward_comparator(const char *text, const Line &a, const Line &b) {
     if (a.pos == b.pos && a.len == b.len) return 0;
     int pos1 = 0, pos2 = 0;
-    wchar_t c1 = 0, c2 = 0;
-    while (c1 == c2 && pos1 < a.len && pos2 < b.len) {
+    wchar_t c1[2] = {0,0}, c2[2] = {0,0};
+    while (c1[0] == c2[0] && pos1 < a.len && pos2 < b.len) {
         do {
-            pos1 += mbrtowc(&c1, text + a.pos + pos1, a.len - pos1, NULL);
-        } while (!iswalpha(c1) && pos1 < a.len);
+            pos1 += mbrtowc(c1, text + a.pos + pos1, a.len - pos1, NULL);
+        } while (!iswalpha(c1[0]) && pos1 < a.len);
         do {
-            pos2 += mbrtowc(&c2, text + b.pos + pos2, b.len - pos2, NULL);
-        } while (!iswalpha(c2) && pos2 < b.len);
+            pos2 += mbrtowc(c2, text + b.pos + pos2, b.len - pos2, NULL);
+        } while (!iswalpha(c2[0]) && pos2 < b.len);
     }
-
-    if (pos1 >= a.len && pos2 >= b.len) {
-        return 0;
+    if (c1[0] == c2[0]) {
+        return a.len < b.len;
     }
-    if (pos1 >= a.len) {
-        return 1;
-    }
-    if (pos2 >= b.len) {
-        return 0;
-    }
-    return (c1 < c2); 
+    return std::wcscoll(c1, c2) < 0; 
 }
 
 bool is_trailing_byte(char c) {
-    const char trailing_mask = (char) (3 << 6);
-    return ((c & trailing_mask) == ~((1 << 7) - 1));
+    return (c >> 6) == 2;
 }
 
 bool backwards_comparator(const char *text, const Line &a, const Line &b) {
     int pos1 = a.len, pos2 = b.len;
-    wchar_t c1 = 0, c2 = 0;
-    while (c1 == c2 && pos1 > 0 && pos2 > 0) {
+    wchar_t c1[2] = {0,0}, c2[2] = {0,0};
+    while (c1[0] == c2[0] && pos1 > 0 && pos2 > 0) {
         do {
             do {
                 pos1--;
             } while (is_trailing_byte(text[a.pos + pos1]));
-            mbrtowc(&c1, text + a.pos + pos1, a.len - pos1, NULL);
-        } while (!iswalpha(c1) && pos1 > 0);
+            mbrtowc(c1, text + a.pos + pos1, a.len - pos1, NULL);
+        } while (!iswalpha(c1[0]) && pos1 > 0);
         do {
             do {
                 pos2--;
             } while (is_trailing_byte(text[b.pos + pos2]));
-            mbrtowc(&c2, text + b.pos + pos2, b.len - pos2, NULL);
-        } while (!iswalpha(c2) && pos1 > 0);
+            mbrtowc(c2, text + b.pos + pos2, b.len - pos2, NULL);
+        } while (!iswalpha(c2[0]) && pos2 > 0);
     } 
-
-    if (pos1 == 0 && pos2 == 0) {
-        return 0;
+    if (c1[0] == c2[0]) {
+        return a.len < b.len;
     }
-    if (pos1 == 0) {
-        return 1;
-    }
-    if (pos2 == 0) {
-        return 0;
-    }
-    return (c1 < c2); 
+    return std::wcscoll(c1, c2) < 0; 
 }
 
 void merge_sort_internal(const char *text, 
         std::vector<Line>::iterator buf_begin, std::vector<Line>::iterator buf_end, 
         const std::vector<Line>::iterator begin, const std::vector<Line>::iterator end,
-        bool (*cmp) (const char *, const Line &, const Line &)) {
+        std::function<bool(const char*, const Line &, const Line &)> cmp) {
     int n = end - begin;
     if (n <= 1) return;
     if (n == 2) {
@@ -113,7 +98,7 @@ void merge_sort_internal(const char *text,
 }
 
 void merge_sort(const char *text, std::vector<Line>::iterator begin, std::vector<Line>::iterator end, 
-        bool (*cmp) (const char *, const Line &, const Line &)) {
+        std::function<bool(const char*, const Line &, const Line &)> cmp) {
     int n = end - begin;
     std::vector<Line> buf(n);
     merge_sort_internal(text, buf.begin(), buf.end(), begin, end, cmp);

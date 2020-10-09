@@ -1,5 +1,6 @@
 #pragma once
 #include <vector>
+#include <functional>
 #include <cstdio>
 
 struct Line {
@@ -66,7 +67,7 @@ bool backwards_comparator(const char *text, const Line &a, const Line &b);
 void merge_sort_internal(const char *text, 
         std::vector<Line>::iterator buf_begin, std::vector<Line>::iterator buf_end, 
         const std::vector<Line>::iterator begin, const std::vector<Line>::iterator end,
-        bool (*cmp) (const char *, const Line &, const Line &));
+        std::function<bool(const char*, const Line &, const Line &)> cmp);
 
 ///----------------------------------------------------------------------
 /// Just a regular merge sort algorithm. Sorts Line objects in [begin, end)
@@ -81,7 +82,7 @@ void merge_sort_internal(const char *text,
 ///
 ///----------------------------------------------------------------------
 void merge_sort(const char *text, std::vector<Line>::iterator begin, std::vector<Line>::iterator end, 
-        bool (*cmp) (const char *, const Line &, const Line &));
+        std::function<bool(const char*, const Line &, const Line &)> cmp);
 
 ///----------------------------------------------------------------------
 /// Simple testing function for checking comparators.

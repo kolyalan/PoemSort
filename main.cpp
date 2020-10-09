@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <vector>
 #include <cwchar>
+#include <cstring>
 #include "debuglib.hpp"
 #include "line_sort.hpp"
 
@@ -15,55 +16,131 @@ void help() {
     std::cerr << "The program should be called as: ./main input_file output_file" << std::endl;
 }
 
+bool get_filenames(int argc, char * argv[], char **filename, char **sorted_file, 
+            char ** back_sorted_file, char **unsorted_file);
+
+bool checked_freopen(char *filename);
+char *open_and_mmap(char *filename, size_t *size);
+void test_functions(char *text, std::vector<Line> lines);
+void print_all_lines(char *text, std::vector<Line> lines);
+
+
 int main(int argc, char *argv[]) {
-    setlocale(LC_ALL, "ru_RU.UTF-8");
+    std::setlocale(LC_ALL, "ru_RU.UTF-8");
     srand(time(NULL));
-    struct stat file;
-    int fd;
+    char * filename         = NULL;
+    char * sorted_file      = NULL;
+    char * back_sorted_file = NULL;
+    char * unsorted_file    = NULL;
+
+    if (get_filenames(argc, argv, &filename, &sorted_file, &back_sorted_file, &unsorted_file) != 0) {
+        return 1;
+    }
+
+    size_t size;
+    char * text = open_and_mmap(filename, &size);
+    
+    std::vector<Line> lines = find_lines(text, size);
+
+#ifdef TEST
+    test_functions(text, lines);
+#endif
+    
+    if (checked_freopen(sorted_file) != 0) {
+        return 1;
+    }
+    merge_sort(text, lines.begin(), lines.end(), forward_comparator);
+    DEBUG_YELLOW_BG(fprintf(out, "Sorted lines:"));
+    print_all_lines(text, lines);
+    fprintf(out, "\n");
+    
+    if(checked_freopen(back_sorted_file) != 0) {
+        return 1;
+    }
+    merge_sort(text, lines.begin(), lines.end(), backwards_comparator);
+    DEBUG_YELLOW_BG(fprintf(out, "Reverse sorted lines:"));
+    print_all_lines(text, lines);
+    fprintf(out, "\n");
+
+    if (checked_freopen(unsorted_file) != 0) {
+        return 1;
+    }
+    DEBUG_YELLOW_BG(fprintf(out, "Initial order:"));
+    size_t p = 0;
+    while (p < size) {
+        p += fprintf(out, "%s\n", text + p);
+    }
+    
+    munmap(text, size);
+    fclose(out);
+    return 0;
+}
+
+bool get_filenames(int argc, char * argv[], char **filename, char **sorted_file, 
+            char ** back_sorted_file, char **unsorted_file) {
 #ifndef TEST
     if (argc < 2) {
         std::cerr << "Input file not specified" << std::endl;
         help();
         return 1;
     }
-    char * filename = argv[1];
+    *filename = argv[1];
     if (argc < 3) {
         std::cerr << "Sorted output file not specified" << std::endl;
         help();
         return 1;
     }
-    char * sorted_file = argv[2];
+    *sorted_file = argv[2];
     if (argc < 4) {
         std::cerr << "Backwards sorted output file not specified" << std::endl;
         help();
         return 1;
     }
-    char * back_sorted_file = argv[3];
+    *back_sorted_file = argv[3];
     if (argc < 5) {
         std::cerr << "Unsorted output file not specified" << std::endl;
         help();
         return 1;
     }
-    char * unsorted_file = argv[4];
+    *unsorted_file = argv[4];
 #else
-    char filename[] = "onegin_small.txt";
+    *filename = (char *)calloc(20, sizeof(**filename));
+    memcpy(*filename, "onegin_small.txt", 17) ;
     out = stdout;
 #endif
-    if (stat(filename, &file) != 0 || (fd = open(filename, O_RDONLY)) == -1) {
-        std::cerr << "Could not open the file" << std::endl;
+    return 0;
+}
+
+bool checked_freopen(char *filename) {
+#ifndef TEST
+    out = freopen(filename, "w", out);
+    if (out == NULL) {
+        std::cerr << "Unable to open file \"" << filename << "\"" << std::endl;
         return 1;
     }
-    size_t size = file.st_size;
+#endif
+    return 0;
+}
+
+char *open_and_mmap(char *filename, size_t *size) {
+    int fd;
+    struct stat file;
+    if (stat(filename, &file) != 0 || (fd = open(filename, O_RDONLY)) == -1) {
+        std::cerr << "Could not open the input file" << std::endl;
+        return NULL;
+    }
+    *size = file.st_size;
     
-    char *text = (char *) mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd,  0);
+    char *text = (char *) mmap(NULL, *size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd,  0);
     if (text == MAP_FAILED) {
         std::cerr << "Could not load file in memory" << std::endl;
+        return NULL; 
     }
     close(fd);
-    
-    std::vector<Line> lines = find_lines(text, size);
+    return text;
+}
 
-#ifdef TEST
+void test_functions(char *text, std::vector<Line> lines) {
     DEBUG_YELLOW_BG(fprintf(out, "Testing line detection."));
     for (size_t i = 0; i < lines.size(); i++) {
         if (i%2) {
@@ -87,61 +164,14 @@ int main(int argc, char *argv[]) {
         test_comparator(text, lines[line_a[i]], lines[line_b[i]], backward_result[i], backwards_comparator);
     }
     fprintf(out, "\n");
-#endif
-    
-#ifndef TEST
-    out = fopen(sorted_file, "w");
-    if (out == NULL) {
-        std::cerr << "Unable to open sorted output file" << std::endl;
-        return 1;
-    }
-#endif
-    merge_sort(text, lines.begin(), lines.end(), forward_comparator);
-    DEBUG_YELLOW_BG(fprintf(out, "Sorted lines:"));
-    for (size_t i = 0; i < lines.size(); i++) {
-        if (i%2) {
-            DEBUG_RED(print_line(text, lines[i]));
-        } else {
-            DEBUG_BLUE(print_line(text, lines[i]));
-        }
-    }
-
-#ifndef TEST
-    out = freopen(back_sorted_file, "w", out);
-    if (out == NULL) {
-        std::cerr << "Unable to open backwards sorted output file" << std::endl;
-        return 1;
-    }
-#endif
-    
-    merge_sort(text, lines.begin(), lines.end(), backwards_comparator);
-    fprintf(out, "\n");
-    DEBUG_YELLOW_BG(fprintf(out, "Reverse sorted lines:"));
-    for (size_t i = 0; i < lines.size(); i++) {
-        if (i%2) {
-            DEBUG_RED(print_line(text, lines[i]));
-        } else {
-            DEBUG_BLUE(print_line(text, lines[i]));
-        }
-    }
-
-#ifndef TEST
-    out = freopen(unsorted_file, "w", out);
-    if (out == NULL) {
-        std::cerr << "Unable to open unsorted output file" << std::endl;
-        return 1;
-    }
-#endif
-
-    fprintf(out, "\n");
-    DEBUG_YELLOW_BG(fprintf(out, "Initial order:"));
-    size_t p = 0;
-    while (p < size) {
-        p += fprintf(out, "%s\n", text + p);
-    }
-    
-    munmap(text, size);
-    fclose(out);
-    return 0;
 }
 
+void print_all_lines(char *text, std::vector<Line> lines) {
+    for (size_t i = 0; i < lines.size(); i++) {
+        if (i%2) {
+            DEBUG_RED(print_line(text, lines[i]));
+        } else {
+            DEBUG_BLUE(print_line(text, lines[i]));
+        }
+    }
+}
